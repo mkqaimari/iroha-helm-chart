@@ -1,0 +1,104 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: iroha-{{ .Release.Name }}
+  labels:
+    app: iroha-{{ .Release.Name }}
+spec:
+  serviceName: iroha-{{ .Release.Name }}
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app: iroha-{{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app: iroha-{{ .Release.Name }}
+    spec:
+      terminationGracePeriodSeconds: 7
+      initContainers:
+      - name: copy-data
+        image: busybox
+        command: ['sh', '-c', 'cp -v /opt/secrets/iroha-{{ .Release.Name }}/node* /opt/iroha_data && cp -v /opt/iroha_config/* /opt/iroha_data']
+        volumeMounts:
+        - name: iroha-secret-{{ .Release.Name }}
+          mountPath: /opt/secrets/iroha-{{ .Release.Name }}
+        - name: iroha-configmap-{{ .Release.Name }}
+          mountPath: /opt/iroha_config
+        - name: iroha-data-{{ .Release.Name }}
+          mountPath: /opt/iroha_data
+      containers:
+      - name: postgres
+        image: postgres:9.5
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 5432
+          name: pg-port
+        env:
+          - name: POSTGRES_PASSWORD
+            value: mysecretpassword
+          - name: PGDATA
+            value: /var/lib/postgresql/data/pgdata
+        livenessProbe:
+          exec:
+            command: ["pg_isready", "-h", "localhost", "-U", "postgres"]
+          initialDelaySeconds: 30
+          timeoutSeconds: 5
+        readinessProbe:
+          exec:
+            command: ["pg_isready", "-h", "localhost", "-U", "postgres"]
+          initialDelaySeconds: 5
+          timeoutSeconds: 1
+        volumeMounts:
+        - name: pg-data-{{ .Release.Name }}
+          mountPath: /var/lib/postgresql/data
+      - name: iroha
+        image: hyperledger/iroha:1.1.2
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 10001
+          name: inter-peer
+        - containerPort: 50051
+          name: external
+        env:
+          - name: IROHA_POSTGRES_HOST
+            value: localhost
+          - name: KEY
+            value: node
+        volumeMounts:
+        - name: iroha-data-{{ .Release.Name }}
+          mountPath: /opt/iroha_data
+        - name: block-store-{{ .Release.Name }}
+          mountPath: /tmp/block_store
+      volumes:
+        - name: iroha-secret-{{ .Release.Name }}
+          secret:
+            secretName: iroha-peer-key-{{ .Release.Name }}
+        - name: iroha-configmap-{{ .Release.Name }}
+          configMap:
+            name: iroha-configmap-{{ .Release.Name }}
+        - name: iroha-data-{{ .Release.Name }}
+          emptyDir: {}
+        - name: block-store-{{ .Release.Name }}
+          emptyDir: {}
+  volumeClaimTemplates:
+    - metadata:
+        name: pg-data-{{ .Release.Name }}
+        labels:
+          app: iroha-{{ .Release.Name }}
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi
+    - metadata:
+        name: block-store-{{ .Release.Name }}
+        labels:
+          app: iroha-{{ .Release.Name }}
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 1Gi

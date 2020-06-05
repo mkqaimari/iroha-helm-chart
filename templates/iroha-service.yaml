@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: iroha-service-{{ .Release.Name }}
+  labels:
+    app: iroha-service-{{ .Release.Name }}
+spec:
+  ports:
+    - port: 50051
+  selector:
+    app: iroha-{{ .Release.Name }}
